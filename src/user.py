@@ -5,6 +5,8 @@ import asyncio
 import uuid
 from loguru import logger
 from datetime import datetime, timedelta
+import time
+import random
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,7 +24,7 @@ class BiliUser:
             raise ValueError("白名单或黑名单格式错误")
         self.config = config
         self.medals = []  # 用户所有勋章
-        self.medalsNeedDo = []  # 用户所有勋章，等级小于20的 未满1500的
+        self.medalsNeedDo = []  # 用户所有勋章，等级小于20的 未满200的
 
         self.session = ClientSession(timeout=ClientTimeout(total=3), trust_env = True)
         self.api = BiliApi(self, self.session)
@@ -87,7 +89,7 @@ class BiliUser:
         [
             self.medalsNeedDo.append(medal)
             for medal in self.medals
-            if medal['medal']['level'] < 20 and medal['medal']['today_feed'] < 1500
+            if medal['medal']['level'] < 20 and medal['medal']['today_feed'] < 200
         ]
 
     async def asynclikeandShare(self, failedMedals: list = []):
@@ -204,15 +206,18 @@ class BiliUser:
         n = 0
         for medal in self.medals:
             try:
-                (await self.api.wearMedal(medal['medal']['medal_id'])) if self.config['WEARMEDAL'] else ...
-                danmaku = await self.api.sendDanmaku(medal['room_info']['room_id'])
+                for i in range(10):
+                    (await self.api.wearMedal(medal['medal']['medal_id'])) if self.config['WEARMEDAL'] else ...
+                    danmaku = await self.api.sendDanmaku(medal['room_info']['room_id'])
+                    self.log.log(
+                        "DEBUG",
+                        "{} 房间弹幕打卡成功: {} ({}/{})".format(
+                            medal['anchor_info']['nick_name'], danmaku, n, len(self.medals)
+                        ),
+                    )
+                    wait_time = random.uniform(5, 10)
+                    time.sleep(wait_time)
                 n += 1
-                self.log.log(
-                    "DEBUG",
-                    "{} 房间弹幕打卡成功: {} ({}/{})".format(
-                        medal['anchor_info']['nick_name'], danmaku, n, len(self.medals)
-                    ),
-                )
             except Exception as e:
                 self.log.log("ERROR", "{} 房间弹幕打卡失败: {}".format(medal['anchor_info']['nick_name'], e))
                 self.errmsg.append(f"【{self.name}】 {medal['anchor_info']['nick_name']} 房间弹幕打卡失败: {str(e)}")
@@ -244,11 +249,11 @@ class BiliUser:
         if self.isLogin:
             tasks = []
             if self.medalsNeedDo:
-                self.log.log("INFO", f"共有 {len(self.medalsNeedDo)} 个牌子未满 1500 亲密度")
+                self.log.log("INFO", f"共有 {len(self.medalsNeedDo)} 个牌子未满 200 亲密度")
                 tasks.append(self.like_v3())
                 tasks.append(self.watchinglive())
             else:
-                self.log.log("INFO", "所有牌子已满 1500 亲密度")
+                self.log.log("INFO", "所有牌子已满 200 亲密度")
             tasks.append(self.sendDanmaku())
             tasks.append(self.signInGroups())
             await asyncio.gather(*tasks)
@@ -264,7 +269,7 @@ class BiliUser:
                 continue
             today_feed = medal['medal']['today_feed']
             nick_name = medal['anchor_info']['nick_name']
-            if today_feed >= 1500:
+            if today_feed >= 200:
                 nameList1.append(nick_name)
             elif 1300 < today_feed <= 1400:
                 nameList2.append(nick_name)
@@ -276,7 +281,7 @@ class BiliUser:
 
         for l, n in zip(
             [nameList1, nameList2, nameList3, nameList4],
-            ["【1500】", "【1300至1400】", "【1200至1300】", "【1200以下】"],
+            ["【200】", "【1300至1400】", "【1200至1300】", "【1200以下】"],
         ):
             if len(l) > 0:
                 self.message.append(f"{n}" + ' '.join(l[:5]) + f"{'等' if len(l) > 5 else ''}" + f' {len(l)}个')
@@ -290,11 +295,11 @@ class BiliUser:
                 )
                 if initialMedal['level'] < 20 and initialMedal['today_feed'] != 0:
                     need = initialMedal['next_intimacy'] - initialMedal['intimacy']
-                    need_days = need // 1500 + 1
+                    need_days = need // 200 + 1
                     end_date = datetime.now() + timedelta(days=need_days)
                     self.message.append(f"今日已获取亲密度 {initialMedal['today_feed']} (B站结算有延迟，请耐心等待)")
                     self.message.append(
-                        f"距离下一级还需 {need} 亲密度 预计需要 {need_days} 天 ({end_date.strftime('%Y-%m-%d')},以每日 1500 亲密度计算)"
+                        f"距离下一级还需 {need} 亲密度 预计需要 {need_days} 天 ({end_date.strftime('%Y-%m-%d')},以每日 200 亲密度计算)"
                     )
         await self.session.close()
         return self.message + self.errmsg + ['---']
